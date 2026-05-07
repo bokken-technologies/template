@@ -14,7 +14,7 @@
   "windowBase": {
     "width": 800,
     "height": 600,
-    "clearColor": "#1c253c"
+    "clearColor": "#9CA8C5"
   },
   "environments": {
     "development": {
@@ -67,5 +67,6 @@
         }
       }
     }
-  }
+  },
+  "metaData": {}
 }
