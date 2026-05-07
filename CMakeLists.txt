@@ -6,9 +6,9 @@ cmake_minimum_required(VERSION 3.16)
 # (darwin/main.cpp) also touches CoreFoundation but that goes through the
 # Apple system frameworks, not via OBJC sources.
 if(APPLE)
-    project(Button LANGUAGES CXX C OBJC)
+    project(Template LANGUAGES CXX C OBJC)
 else()
-    project(Button LANGUAGES CXX C)
+    project(Template LANGUAGES CXX C)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
