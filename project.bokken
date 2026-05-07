@@ -1,0 +1,71 @@
+{
+  "general": {
+    "displayTitle": "Template",
+    "internalSlug": "template",
+    "author": {
+      "person": {
+        "firstName": "John",
+        "lastName": "Doe"
+      },
+      "organization": {}
+    },
+    "projectVersion": "1.0.0-alpha"
+  },
+  "windowBase": {
+    "width": 800,
+    "height": 600,
+    "clearColor": "#1c253c"
+  },
+  "environments": {
+    "development": {
+      "windowOverrides": {
+        "isFullscreen": false,
+        "isBorderlessFullscreen": false,
+        "alwaysOnTop": false,
+        "transparent": false,
+        "useVsync": true
+      },
+      "scriptingEngine": {
+        "runtime": {
+          "maxHeapSizeMb": 128,
+          "stackSizeKb": 1024,
+          "gcThresholdKb": 512,
+          "interruptHandlerMs": 50
+        },
+        "features": {
+          "enableBytecodeCache": false,
+          "enableProxy": true
+        },
+        "interop": {
+          "printToStandardOut": true,
+          "verbosity": "detailed"
+        }
+      }
+    },
+    "production": {
+      "windowOverrides": {
+        "isFullscreen": true,
+        "isBorderlessFullscreen": true,
+        "alwaysOnTop": true,
+        "transparent": false,
+        "useVsync": true
+      },
+      "scriptingEngine": {
+        "runtime": {
+          "maxHeapSizeMb": 64,
+          "stackSizeKb": 512,
+          "gcThresholdKb": 256,
+          "interruptHandlerMs": 10
+        },
+        "features": {
+          "enableBytecodeCache": true,
+          "enableProxy": false
+        },
+        "interop": {
+          "printToStandardOut": false,
+          "verbosity": "silent"
+        }
+      }
+    }
+  }
+}

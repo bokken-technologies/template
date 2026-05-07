@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "rootDir": "./src",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+
+    /* JSX configuration — Canvas.createElement is the engine-provided
+       factory, exposed by `bokken/canvas`. */
+    "jsx": "react",
+    "jsxFactory": "Canvas.createElement",
+    "jsxFragmentFactory": "Canvas.Fragment",
+
+    /* Path mapping for the `bokken/*` ambient modules. The actual outDir
+       is supplied at build time by the Makefile via `tsc --outDir`. */
+    "paths": {
+      "bokken/*": ["./types/*.d.ts"]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "types/**/*"
+  ]
+}
