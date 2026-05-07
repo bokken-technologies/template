@@ -4,7 +4,7 @@ import Canvas, { View, Label } from "bokken/canvas";
 export function onStart() {
     Canvas.render(
         <View>
-            <Label style={{padding: 50}}>Hello, World!</Label>
+            <Label>Hello, World!</Label>
         </View>
     );
 }
