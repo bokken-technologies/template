@@ -90,6 +90,22 @@ endif()
 
 add_executable(${PROJECT_NAME} ${COMMON_SOURCES} ${PLATFORM_SOURCES})
 
+# Pin the executable's output directory to a fixed path. The asset pack
+# and copy steps below write into the same directory, so the runtime
+# layout (executable + project.bokken + assets/ + libBokkenEngine.dylib)
+# is self-contained and ready to launch.
+#
+# Using a fixed path rather than $<TARGET_FILE_DIR:${PROJECT_NAME}>
+# also dodges a dependency cycle: if the asset stamps wrote into the
+# executable's own output dir, CMake would infer a dependency from the
+# stamps to the executable target, while we also tell the executable
+# to depend on the stamps via add_dependencies — circular.
+set(DEPLOY_DIR "${CMAKE_BINARY_DIR}/bin")
+file(MAKE_DIRECTORY "${DEPLOY_DIR}")
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${DEPLOY_DIR}"
+)
+
 # Link the engine. The engine's CMakeLists exposes BokkenEngine as a
 # SHARED target with PUBLIC include directories — that's everything we
 # need. No third-party include paths to reproduce here.
@@ -121,9 +137,22 @@ endif()
 
 # Build steps — script compilation and asset packing
 #
-# Both phases shell out to the bokken-cli executable located via
-# find_program above. The CLI itself is built and installed by the
-# engine; this project only consumes it.
+# Each phase is wired up as an output-producing custom command with
+# explicit DEPENDS, so Ninja/Make can skip work whose inputs haven't
+# changed. Earlier versions used `add_custom_command(TARGET ... PRE_BUILD)`
+# / `POST_BUILD`, which always re-run every time the target is touched —
+# fine for correctness, but expensive on every `make run`.
+#
+# The bytecode compile step depends on a stamp file written by the
+# outer Makefile after a successful tsc run, rather than globbing the
+# transpiled .js files at configure time. That way:
+#
+#   1. cmake configure can run before tsc has produced anything (clean
+#      build) without a confusing "no inputs" warning.
+#   2. tsc reruns trigger exactly one downstream rebuild — the bytecode
+#      compile — and only because the stamp's mtime advanced. No need
+#      for CMake to re-glob, no risk of the OS lying about directory
+#      mtimes.
 
 if(NOT DEFINED SCRIPTS_DIR)
     message(FATAL_ERROR
@@ -133,56 +162,99 @@ if(NOT DEFINED SCRIPTS_DIR)
 endif()
 
 set(COMPILED_SCRIPTS_DIR "${CMAKE_BINARY_DIR}/compiled")
+set(TS_STAMP "${CMAKE_BINARY_DIR}/.tsc.stamp")
 
-# Compile transpiled JS → QuickJS bytecode before the executable links.
-# The resulting .script files are picked up by the post-build pack step.
-add_custom_command(TARGET ${PROJECT_NAME} PRE_BUILD
+# Compile transpiled JS → QuickJS bytecode. Depends on the tsc stamp
+# instead of globbing the .js files, so this re-runs iff tsc actually
+# re-ran.
+set(COMPILE_STAMP "${CMAKE_BINARY_DIR}/.compile.stamp")
+
+add_custom_command(
+    OUTPUT  "${COMPILE_STAMP}"
     COMMAND "${BOKKEN_CLI}" compile --source "${SCRIPTS_DIR}" --output "${COMPILED_SCRIPTS_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E touch "${COMPILE_STAMP}"
+    DEPENDS "${TS_STAMP}"
     COMMENT "bokken-cli compile: scripts → bytecode"
     VERBATIM
 )
 
-# Pack each top-level subdirectory of assets/ into its own .assetpack so
-# the engine can mount them independently (textures, audio, fonts, etc.).
+# Pack assets
+#
+# One stamp per top-level asset group. We capture inputs per-group at
+# configure time, so a change to a single texture only re-packs the
+# textures group. Adding a brand-new asset file requires a manual
+# `make setup` to pick up — a deliberate trade for not running CMake's
+# CONFIGURE_DEPENDS, which can trigger spurious reconfigures on
+# directory mtime updates and defeat the whole point of the incremental
+# setup.
 set(ASSET_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+set(PACK_STAMPS "")
+
 if(EXISTS "${ASSET_ROOT}")
     file(GLOB ASSET_GROUPS RELATIVE "${ASSET_ROOT}" "${ASSET_ROOT}/*")
     foreach(GROUP ${ASSET_GROUPS})
         if(IS_DIRECTORY "${ASSET_ROOT}/${GROUP}")
-            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND "${BOKKEN_CLI}" pack "${ASSET_ROOT}/${GROUP}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets/${GROUP}"
+            file(GLOB_RECURSE GROUP_INPUTS "${ASSET_ROOT}/${GROUP}/*")
+            set(GROUP_STAMP "${CMAKE_BINARY_DIR}/.pack-${GROUP}.stamp")
+
+            add_custom_command(
+                OUTPUT  "${GROUP_STAMP}"
+                COMMAND "${BOKKEN_CLI}" pack "${ASSET_ROOT}/${GROUP}" "${DEPLOY_DIR}/assets/${GROUP}"
+                COMMAND ${CMAKE_COMMAND} -E touch "${GROUP_STAMP}"
+                DEPENDS ${GROUP_INPUTS}
                 COMMENT "bokken-cli pack: '${GROUP}'"
                 VERBATIM
             )
+            list(APPEND PACK_STAMPS "${GROUP_STAMP}")
         endif()
     endforeach()
 endif()
 
-# Pack the compiled scripts into their own assetpack alongside the others.
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND "${BOKKEN_CLI}" pack "${COMPILED_SCRIPTS_DIR}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets/scripts"
+# Pack the compiled scripts into their own assetpack. Depends on the
+# compile stamp, so it only re-runs when the bytecode has actually been
+# regenerated.
+set(SCRIPTS_PACK_STAMP "${CMAKE_BINARY_DIR}/.pack-scripts.stamp")
+add_custom_command(
+    OUTPUT  "${SCRIPTS_PACK_STAMP}"
+    COMMAND "${BOKKEN_CLI}" pack "${COMPILED_SCRIPTS_DIR}" "${DEPLOY_DIR}/assets/scripts"
+    COMMAND ${CMAKE_COMMAND} -E touch "${SCRIPTS_PACK_STAMP}"
+    DEPENDS "${COMPILE_STAMP}"
     COMMENT "bokken-cli pack: compiled scripts"
     VERBATIM
 )
+list(APPEND PACK_STAMPS "${SCRIPTS_PACK_STAMP}")
 
-# Deploy project.bokken next to the executable so the engine can read it
-# at startup with a relative path.
+# Deploy project.bokken and the engine library
+#
+# These two stay as TARGET POST_BUILD commands because they use
+# copy_if_different, which is itself a no-op when the destination is
+# already up to date — making them OUTPUT-driven would buy nothing
+# beyond more complexity. They cost ~milliseconds even on every link.
+# Note: writing to ${DEPLOY_DIR} (a plain string), not
+# $<TARGET_FILE_DIR:${PROJECT_NAME}>, so no implicit cycle back into the
+# executable.
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/project.bokken"
-            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/project.bokken"
+            "${DEPLOY_DIR}/project.bokken"
     COMMENT "Deploying project.bokken"
     VERBATIM
 )
 
-# Copy the engine shared library next to the executable. On Apple this is
-# also handled by BUILD_RPATH at dev time, but copying makes the build dir
-# self-contained and ready for distribution. On Windows the .dll MUST be
-# adjacent to the .exe — there's no rpath equivalent.
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:BokkenEngine>"
-            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/$<TARGET_FILE_NAME:BokkenEngine>"
+            "${DEPLOY_DIR}/$<TARGET_FILE_NAME:BokkenEngine>"
     COMMENT "Deploying BokkenEngine library"
     VERBATIM
 )
+
+# Glue: bind the OUTPUT-driven phases to the executable
+#
+# Custom commands with OUTPUT only run if something *demands* their
+# output. We aggregate every stamp into a single phony target, mark it
+# ALL so it's part of the default build, and make the executable depend
+# on it. Result: building the executable transitively triggers any
+# stale phases, and a fully up-to-date tree re-runs nothing.
+add_custom_target(bokken_assets ALL DEPENDS ${PACK_STAMPS})
+add_dependencies(${PROJECT_NAME} bokken_assets)

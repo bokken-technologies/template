@@ -40,29 +40,40 @@ all: build
 # Make sees the cache file is present and the dependency is satisfied.
 # CMake's own auto-regen handles re-configures when CMakeLists.txt
 # itself changes — that happens during `cmake --build`, not here.
-$(CMAKE_CACHE): $(TS_STAMP)
+#
+# IMPORTANT: this target depends ONLY on the existence of $(SCRIPTS_OUT)
+# as a directory (order-only prerequisite, after the |), NOT on the tsc
+# stamp. The cmake configure step doesn't read transpiled JS — it just
+# needs the path to exist. Depending on $(TS_STAMP) here would mean every
+# tsc rerun (i.e. every .tsx edit) invalidates the cmake cache and triggers
+# a full reconfigure, cascading into rebuilds of the engine and everything
+# downstream.
+$(CMAKE_CACHE): | $(SCRIPTS_OUT)
 	cmake -S . -B $(BUILD_TEMP) -DCMAKE_BUILD_TYPE=Debug \
 	    -DSCRIPTS_DIR="$(abspath $(SCRIPTS_OUT))" \
 	    -DBOKKEN_ENGINE_TAG="$(BOKKEN_ENGINE_TAG)"
 
+# Order-only prerequisite: the directory has to exist before configure
+# runs, but its mtime doesn't propagate up — files landing inside don't
+# make $(CMAKE_CACHE) appear stale.
+$(SCRIPTS_OUT):
+	@mkdir -p $(SCRIPTS_OUT)
+
 # tsc re-runs only when a .ts/.tsx/.d.ts file or tsconfig.json is
 # newer than the stamp. The stamp is touched after a successful tsc,
 # giving us a single mtime to compare against.
-$(TS_STAMP): $(TS_SOURCES)
-	@mkdir -p $(SCRIPTS_OUT)
+$(TS_STAMP): $(TS_SOURCES) | $(SCRIPTS_OUT)
 	@echo "Compiling TypeScript..."
 	npx tsc --project tsconfig.json --outDir $(SCRIPTS_OUT)
 	@touch $(TS_STAMP)
 
 # Phony entry points
 #
-# Thin wrappers around the file-backed targets. Each one demands the
-# real targets exist, then does the minimum extra work.
-
-# Configure once, then build. cmake --build is itself incremental —
-# it compares object timestamps and skips compilation/linking when
-# nothing has changed.
-build: $(CMAKE_CACHE)
+# Thin wrappers around the file-backed targets. `build` triggers tsc and
+# the cmake configure independently — neither depends on the other through
+# the Make graph. cmake --build at the end picks up whatever tsc produced
+# via the OUTPUT-driven custom commands inside CMakeLists.txt.
+build: $(TS_STAMP) $(CMAKE_CACHE)
 	cmake --build $(BUILD_TEMP)
 	@echo "Build complete. Executable & assets deployed to $(BUILD_TEMP)$(P_SEP)bin."
 
