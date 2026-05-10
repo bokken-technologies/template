@@ -1,27 +1,35 @@
 declare module "bokken/log" {
     /**
-     * Records highly detailed diagnostic information.
-     * Typically suppressed in 'Release' builds to maintain performance.
-     * @param message The primary log message.
-     * @param args Optional metadata or objects to be serialized and inspected.
+     * Variadic logging API.
+     *
+     * Each severity accepts any number of arguments of any type:
+     * primitives are stringified normally, plain objects and arrays
+     * via `JSON.stringify`, errors via their `toString` (which gives
+     * `name: message`). Arguments are joined with spaces and routed
+     * to the C++ logger.
+     *
+     * @example
+     *   import Log from "bokken/log";
+     *
+     *   Log.info("player spawned at", x, y);
+     *   Log.debug({ phase: "intro", tick: t });
+     *   Log.warning("retry", attempt, "of", max);
+     *   Log.error("load failed:", err);
      */
-    export function debug(message: string, ...args: any[]): void;
+    interface Log {
+        /** Detailed diagnostic info. Routed to `SDL_LogDebug`. */
+        debug(...args: any[]): void;
 
-    /**
-     * Records general application flow and milestone events (e.g., "Scene Loaded").
-     * The standard level for tracking engine state during normal execution.
-     */
-    export function info(message: string, ...args: any[]): void;
+        /** Normal application flow. Routed to `SDL_LogInfo`. */
+        info(...args: any[]): void;
 
-    /**
-     * Records non-critical issues that don't stop the engine but require attention.
-     * Highlighted in yellow in the C++ debugger/IDE console.
-     */
-    export function warning(message: string, ...args: any[]): void;
+        /** Non-critical issues. Routed to `SDL_LogWarn` (yellow). */
+        warning(...args: any[]): void;
 
-    /**
-     * Records critical failures, exceptions, or invalid engine states.
-     * Highlighted in red and typically includes a JavaScript stack trace in the native output.
-     */
-    export function error(message: string, ...args: any[]): void;
+        /** Critical failures. Routed to `SDL_LogError` (red). */
+        error(...args: any[]): void;
+    }
+
+    const Log: Log;
+    export default Log;
 }

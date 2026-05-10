@@ -15,6 +15,7 @@
 
 /// <reference path="./audio.d.ts" />
 /// <reference path="./canvas.d.ts" />
+/// <reference path="./engine.d.ts" />
 /// <reference path="./gameObject.d.ts" />
 /// <reference path="./input.d.ts" />
 /// <reference path="./log.d.ts" />
