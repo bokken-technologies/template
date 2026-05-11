@@ -26,6 +26,57 @@ declare module "bokken/gameObject" {
     }
 
     /**
+     * Light source type for Light2D.
+     *
+     *   "Point"        — omnidirectional. Range + falloff define brightness;
+     *                    no direction or cone fields apply.
+     *   "Spot"         — directional cone. Uses directionDegrees and
+     *                    innerConeAngle / outerConeAngle in addition to
+     *                    range and falloff.
+     *   "Directional"  — infinitely-distant parallel light (the sun, the
+     *                    moon). Uses directionDegrees only; position,
+     *                    range, falloff, and cone fields are ignored.
+     *                    Directional lights are added to every screen
+     *                    tile during forward+ culling.
+     */
+    export enum LightType {
+        Point = "Point",
+        Spot = "Spot",
+        Directional = "Directional",
+    }
+
+    /**
+     * Animation envelope kind for Light2D.
+     *
+     *   "Constant" — no modulation. The light burns at exactly the
+     *                authored intensity every frame.
+     *   "Flicker"  — 1D value noise. Candles, torches, distant storms.
+     *                envelopeFrequency drives jitter rate.
+     *   "Pulse"    — sinusoidal swing. Heartbeats, magic orbs, breath.
+     *                envelopeFrequency in Hz.
+     *   "Strobe"   — square wave with smoothed edges. Alarms, emergency
+     *                lights. Defaults to "on at t=0" so an alarm
+     *                triggered by spawning the light starts at full
+     *                brightness.
+     *   "Custom"   — engine doesn't touch intensityModulator; scripts
+     *                write it directly each frame. Allows arbitrary
+     *                waveforms including over-bright peaks (useful for
+     *                lightning strikes).
+     *
+     * All engine envelopes (Flicker, Pulse, Strobe) modulate in
+     * [1 - amplitude, 1]: the authored intensity is the peak, the
+     * modulator only ever dims. Use Custom for waveforms that should
+     * exceed the authored ceiling.
+     */
+    export enum LightEnvelope {
+        Constant = "Constant",
+        Flicker = "Flicker",
+        Pulse = "Pulse",
+        Strobe = "Strobe",
+        Custom = "Custom",
+    }
+
+    /**
      * Describes a grid region of a sprite sheet for automatic frame slicing.
      * Passed as the `frames` field of an animation clip when you want the
      * engine to carve the frames out of the Sprite2D's texture automatically.
@@ -257,6 +308,245 @@ declare module "bokken/gameObject" {
          * Each call creates an independent wave — safe to call multiple times.
          */
         trigger(): void;
+    }
+
+    /**
+     * A 2D light source.
+     *
+     * Contributes per-pixel lighting in the LightingPass, optionally
+     * casting shadows through the ShadowmapPass when castsShadows is
+     * true and a ShadowmapPass is installed in the pipeline. Sample
+     * pixels are evaluated in light-relative world space; position
+     * is read from the sibling Transform2D each frame.
+     *
+     * Three light types behave differently:
+     *   - Point: omnidirectional, attenuates with distance over range.
+     *   - Spot: cone-shaped, uses directionDegrees + cone angles.
+     *   - Directional: infinitely-distant parallel light, like the sun.
+     *
+     * Optional features layered on top:
+     *   - Animation envelopes (Flicker, Pulse, Strobe, Custom) modulate
+     *     intensityModulator each frame.
+     *   - Shadow casting writes per-light occluder distance to the
+     *     shadow atlas; the lighting pass samples with PCF.
+     *   - Cookies project an image onto the light's contribution (the
+     *     Bat-Signal effect, stained glass, projector patterns).
+     *
+     * Performance: lights are CPU-binned into 16x16 pixel tiles each
+     * frame, so the per-pixel light count is typically 4-12 even with
+     * hundreds of scene lights. Hard caps: 256 simultaneous lights,
+     * 256 shadow-casting lights, 32 unique cookies, 32 lights per tile.
+     *
+     * @example
+     *   // Flickering torch with soft shadows
+     *   const torch = new GameObject("Torch")
+     *       .addComponent(Transform2D, { positionX: 300, positionY: 300 })
+     *       .addComponent(Light2D, {
+     *           type: LightType.Point,
+     *           color: 0xFF8C2EFF,
+     *           intensity: 2.8,
+     *           range: 260,
+     *           castsShadows: true,
+     *           shadowSoftness: 2.0,
+     *           envelope: LightEnvelope.Flicker,
+     *           envelopeAmplitude: 0.2,
+     *           envelopeFrequency: 6.0,
+     *       });
+     */
+    export class Light2D extends Component {
+        /** Light source kind. See LightType. */
+        public type: LightType;
+
+        /**
+         * Packed 0xRRGGBBAA colour of the light, matching Mesh2D.color.
+         * The alpha byte is ignored on assignment (Light2D has no alpha
+         * channel) and always reads back as 0xFF.
+         *
+         * For HDR colours where channels need to exceed 1.0
+         * (overbright sources, magical glow), set colorR/G/B
+         * individually — packed bytes can only represent the 0..1
+         * range.
+         *
+         * Reading `color` is lossy: HDR values written through
+         * colorR/G/B are clamped to [0, 1] before serialisation.
+         */
+        public color: number;
+
+        /** Red channel of the light's linear-RGB colour. HDR values >1 are valid. */
+        public colorR: number;
+        /** Green channel of the light's linear-RGB colour. */
+        public colorG: number;
+        /** Blue channel of the light's linear-RGB colour. */
+        public colorB: number;
+
+        /**
+         * Scalar multiplier on color. Animation envelopes modulate
+         * intensityModulator each frame without changing this; scripts
+         * that want to fade a light should write `intensity` directly.
+         */
+        public intensity: number;
+
+        /** Pixel radius at which falloff reaches zero. Ignored for directional lights. */
+        public range: number;
+
+        /**
+         * Falloff exponent. 1.0 = linear, 2.0 = quadratic (physically
+         * accurate inverse-square). Higher values produce a sharper
+         * falloff edge.
+         */
+        public falloff: number;
+
+        /** Spot inner cone half-angle in degrees. Inside this cone the intensity is full. */
+        public innerConeAngle: number;
+        /** Spot outer cone half-angle in degrees. Between inner and outer, smoothstep falloff. */
+        public outerConeAngle: number;
+
+        /**
+         * Direction for spot / directional lights, expressed as an
+         * angle in degrees (0 = +X, 90 = +Y). For directional lights
+         * this is the direction light is travelling, not where the
+         * light is "looking".
+         */
+        public directionDegrees: number;
+
+        /**
+         * Whether this light writes to the shadow atlas. Requires a
+         * ShadowmapPass in the pipeline. Shadow slots are assigned
+         * per-frame; lights beyond the slot cap (256) render
+         * unshadowed for that frame.
+         */
+        public castsShadows: boolean;
+
+        /**
+         * PCF kernel radius multiplier for this light's shadow sampling.
+         * 1.0 = renderer default; larger values soften the shadow edge
+         * (diffuse sources, fog), smaller values sharpen it (focused
+         * flashlights). Nominal range [0, ~5]; 0 produces effectively
+         * hard shadows.
+         */
+        public shadowSoftness: number;
+
+        /**
+         * Animation envelope. Drives intensityModulator each frame
+         * (except Custom, which is script-driven). See LightEnvelope.
+         */
+        public envelope: LightEnvelope;
+        /** Envelope swing amount in [0, 1]. 0.0 = no swing, 1.0 = full swing. */
+        public envelopeAmplitude: number;
+        /** Envelope cycle rate in Hz. */
+        public envelopeFrequency: number;
+        /** Envelope phase offset in seconds. Use to desync identical lights. */
+        public envelopePhase: number;
+
+        /**
+         * Per-frame intensity modulator written by the envelope.
+         * Multiplied with `intensity` at GPU upload time. Scripts
+         * running a Custom envelope write this field directly each
+         * frame. Values nominally in [0, 1]; engine envelopes never
+         * exceed 1.0.
+         */
+        public intensityModulator: number;
+
+        /**
+         * Path to the cookie / gobo image in the asset pack VFS.
+         * Empty string = no cookie. Loaded lazily on first use into
+         * a slot-based atlas; up to 32 unique cookies can be resident
+         * simultaneously (FIFO eviction beyond that).
+         *
+         * Sampled in light-relative world space: the light's position
+         * maps to the cookie's centre (UV 0.5, 0.5), the light's range
+         * maps to the cookie's edges (UV 0 and 1).
+         */
+        public cookiePath: string;
+        /** Horizontal cookie UV offset. Animate over time for scrolling cookies. */
+        public cookieUVOffsetX: number;
+        /** Vertical cookie UV offset. */
+        public cookieUVOffsetY: number;
+        /** Horizontal cookie UV scale. Values >1 tile the cookie within the slot. */
+        public cookieUVScaleX: number;
+        /** Vertical cookie UV scale. */
+        public cookieUVScaleY: number;
+
+        /**
+         * Reset the envelope's internal phase clock to zero. Useful
+         * for "alarm triggers at this exact moment" — without this,
+         * the envelope is mid-cycle when first encountered.
+         * No-op for Constant and Custom envelopes.
+         */
+        resetEnvelope(): void;
+    }
+
+    /**
+     * An explicit polygonal occluder for the 2D lighting system.
+     *
+     * Attach alongside a Transform2D to make the owning GameObject
+     * cast shadows. The outline is a list of local-space vertices in
+     * pixel coordinates; the renderer reads the sibling Transform2D
+     * each frame to project these into world space and rasterises
+     * shadow segments to the per-light shadow atlas.
+     *
+     * Authoring conventions
+     *
+     *   - Vertices are in local pixel space relative to the
+     *     GameObject's anchor. (0, 0) is the anchor.
+     *   - Order is counterclockwise around the silhouette in screen
+     *     space (top-left origin). Reversed winding produces inverted
+     *     shadows.
+     *   - The outline is implicitly closed — do not repeat the first
+     *     vertex at the end.
+     *   - Outlines need not be convex. Each edge is rasterised
+     *     independently.
+     *
+     * @example
+     *   const wall = new GameObject("Wall")
+     *       .addComponent(Transform2D, { positionX: 500, positionY: 300 })
+     *       .addComponent(ShadowCaster2D, {
+     *           outline: [
+     *               { x: -30, y: -50 },
+     *               { x:  30, y: -50 },
+     *               { x:  30, y:  50 },
+     *               { x: -30, y:  50 },
+     *           ],
+     *       });
+     */
+    export class ShadowCaster2D extends Component {
+        /**
+         * Global switch — false skips this caster's contribution
+         * without removing it. Useful for "lights-off" cutscenes or
+         * for occluders that conditionally appear (a door opening).
+         */
+        public castsShadow: boolean;
+
+        /**
+         * Per-caster softness multiplier. Currently INERT — the field
+         * is plumbed through the renderer but has no effect on shadow
+         * sampling, which uses per-light softness instead.
+         *
+         * Reserved for a future per-caster softness path that would
+         * store softness alongside occluder distance in a secondary
+         * atlas channel.
+         */
+        public softness: number;
+
+        /**
+         * Polygon outline in local-space pixels. Reading returns a
+         * fresh array copy; mutate the array and re-assign to update
+         * the caster.
+         *
+         * Entries with non-numeric x/y are silently dropped from the
+         * stored outline so partial data doesn't corrupt the buffer.
+         */
+        public outline: { x: number; y: number }[];
+    }
+
+    /**
+     * Tangent-space normal map for the sibling Sprite2D.
+     */
+    export class NormalMap2D extends Component {
+        public normalMapPath: string;
+        public autoGenerate: boolean;
+        public autoStrength: number;
+        invalidate(): void;
     }
 
     /**

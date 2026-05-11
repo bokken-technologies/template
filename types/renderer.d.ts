@@ -3,18 +3,35 @@ declare module "bokken/renderer" {
      * Built-in pipeline stage kinds accepted by `pipeline.addStage()`.
      *
      *   "sprite"      — Scene stage. Clears and flushes the SpriteBatcher.
+     *                    Writes albedo + normal + emissive to deferred targets
+     *                    when followed by a lighting pass.
+     *   "shadow"    — Rasterises shadow-caster outlines into the per-light
+     *                    1D shadow atlas. Install BEFORE the "lighting"
+     *                    stage and AFTER "sprite".
+     *   "lighting"     — Accumulates Light2D contributions into a lit image.
+     *                    Tiled forward+ culling, PCF shadows, cookie sampling.
      *   "bloom"        — Bright-pass + Gaussian blur + additive composite.
      *   "color-grade"  — Filmic tonemap + exposure + saturation + gamma.
      *   "distortion"   — Screen-space UV displacement (shockwaves, heat haze).
      *   "composite"    — Final passthrough to the default framebuffer.
+     *
+     * Typical install order (lighting + shadows):
+     *   sprite → shadow → lighting → bloom → color-grade → composite
      */
-    export type StageKind = "sprite" | "bloom" | "color-grade" | "distortion" | "composite";
+    export type StageKind =
+        | "sprite"
+        | "shadow"
+        | "lighting"
+        | "bloom"
+        | "color-grade"
+        | "distortion"
+        | "composite";
 
     /** Texture filtering mode. */
     export type TextureFilter = "linear" | "nearest";
 
     /** Properties for the "sprite" (scene) stage. */
-    export interface SpriteStageProps {
+    export interface SpriteStageProperties {
         enabled?: boolean;
         clearR?: number;
         clearG?: number;
@@ -22,8 +39,63 @@ declare module "bokken/renderer" {
         clearA?: number;
     }
 
+    /** Properties for the "shadow" stage. */
+    export interface ShadowStageProperties {
+        enabled?: boolean;
+    }
+
+    /**
+     * Properties for the "lighting" stage.
+     *
+     * Ambient can be authored two ways:
+     *
+     *   - Packed: `ambient: 0xRRGGBBAA` — matches Mesh2D.color and
+     *     Light2D.color, so a single conventional colour pattern works
+     *     everywhere. The alpha byte is ignored. Limited to LDR
+     *     [0, 1] per channel.
+     *
+     *   - Flat scalar: `ambientR/G/B` individually — required when
+     *     HDR ambient (values > 1.0) is needed for overbright skies,
+     *     cave glows, etc.
+     *
+     * When both are specified, the packed form is applied first and
+     * the flat scalars override per-channel. So `{ ambient: 0x202030FF,
+     * ambientR: 2.5 }` gives an HDR red on a dim cool baseline.
+     */
+    export interface LightingStageProperties {
+        enabled?: boolean;
+        /**
+         * Global multiplier on every light's intensity. Useful for
+         * "darken everything" cutscene fades or to tone-map the whole
+         * lighting budget down without touching individual lights.
+         * Default 1.0.
+         */
+        intensityScale?: number;
+        /**
+         * Wrap-around amount in [0, 1]. 0.0 = pure Lambertian N·L (very
+         * contrasty on 2D sprites that lack authored normal maps —
+         * flat sprites become invisible when no light faces them).
+         * 0.5 = half-cosine wrap, the "atmospheric 2D" default favoured
+         * by games like Children of Morta and Ori. 1.0 = omnidirectional,
+         * only distance and cone shape the lighting falloff. Default 0.5.
+         */
+        wrapAmount?: number;
+        /**
+         * Packed 0xRRGGBBAA ambient colour. Matches Mesh2D.color and
+         * Light2D.color. Alpha byte is ignored. For HDR ambient
+         * (>1.0 per channel) use ambientR/G/B instead.
+         */
+        ambient?: number;
+        /** Ambient term red channel. Default 0.05. Overrides the R byte of `ambient`. */
+        ambientR?: number;
+        /** Ambient term green channel. Default 0.05. Overrides the G byte of `ambient`. */
+        ambientG?: number;
+        /** Ambient term blue channel. Default 0.06. Overrides the B byte of `ambient`. */
+        ambientB?: number;
+    }
+
     /** Properties for the "bloom" stage. */
-    export interface BloomStageProps {
+    export interface BloomStageProperties {
         enabled?: boolean;
         /** Luma threshold above which pixels contribute to bloom. */
         threshold?: number;
@@ -34,7 +106,7 @@ declare module "bokken/renderer" {
     }
 
     /** Properties for the "color-grade" stage. */
-    export interface ColorGradeStageProps {
+    export interface ColorGradeStageProperties {
         enabled?: boolean;
         /** Exposure multiplier applied before tonemapping. */
         exposure?: number;
@@ -45,7 +117,7 @@ declare module "bokken/renderer" {
     }
 
     /** Properties for the "distortion" stage. */
-    export interface DistortionStageProps {
+    export interface DistortionStageProperties {
         enabled?: boolean;
         /** Global displacement intensity multiplier. 0 disables entirely. */
         intensity?: number;
@@ -60,17 +132,19 @@ declare module "bokken/renderer" {
     }
 
     /** Properties for the "composite" stage. */
-    export interface CompositeStageProps {
+    export interface CompositeStageProperties {
         enabled?: boolean;
     }
 
     /** Union of all stage property types for `pipeline.configure()`. */
-    export type StageProps =
-        | SpriteStageProps
-        | BloomStageProps
-        | ColorGradeStageProps
-        | DistortionStageProps
-        | CompositeStageProps;
+    export type StageProperties =
+        | SpriteStageProperties
+        | ShadowStageProperties
+        | LightingStageProperties
+        | BloomStageProperties
+        | ColorGradeStageProperties
+        | DistortionStageProperties
+        | CompositeStageProperties;
 
     /** Optional parameters for `addShockwave()`. */
     export interface ShockwaveParams {
@@ -114,7 +188,7 @@ declare module "bokken/renderer" {
          * Renderer.pipeline.addStage("bloom", "bloom", { threshold: 0.7, intensity: 0.5 });
          * Renderer.pipeline.addStage("distortion", "distortion", { intensity: 0.05 });
          */
-        addStage(kind: StageKind, name: string, props?: StageProps): boolean;
+        addStage(kind: StageKind, name: string, props?: StageProperties): boolean;
 
         /** Remove a stage by name. */
         removeStage(name: string): boolean;
@@ -132,7 +206,7 @@ declare module "bokken/renderer" {
          * Renderer.pipeline.configure("bloom", { intensity: 0.8 });
          * Renderer.pipeline.configure("distortion", { heatHaze: true, heatHazeAmplitude: 0.005 });
          */
-        configure(name: string, props: StageProps): boolean;
+        configure(name: string, props: StageProperties): boolean;
 
         /** Returns the ordered list of stage names. */
         list(): string[];
