@@ -1,5 +1,5 @@
 declare module "bokken/input" {
-    interface Vec2 {
+    interface Vector2 {
         readonly x: number;
         readonly y: number;
     }
@@ -19,7 +19,7 @@ declare module "bokken/input" {
         isKeyReleased(key: string): boolean;
 
         /** Returns the current mouse position in window coordinates. */
-        getMousePosition(): Vec2;
+        getMousePosition(): Vector2;
 
         /**
          * Returns true while the mouse button is held.
@@ -34,7 +34,7 @@ declare module "bokken/input" {
         isMouseReleased(button: number): boolean;
 
         /** Returns the scroll wheel delta for this frame. */
-        getScrollDelta(): Vec2;
+        getScrollDelta(): Vector2;
     }
 
     const input: Input;
