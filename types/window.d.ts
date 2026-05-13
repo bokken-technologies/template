@@ -85,6 +85,10 @@ declare module "bokken/window" {
          *
          * Returns true on success, false if the dimensions are
          * invalid (zero or negative) for the chosen policy.
+         *
+         * The new size is staged immediately but actually committed
+         * at the start of the next frame, at which point any
+         * onResize listeners fire.
          */
         setRenderSize(width: number, height: number, mode?: RenderMode): boolean;
 
@@ -97,9 +101,9 @@ declare module "bokken/window" {
          * [0..renderW] × [0..renderH] — callers can range-check the
          * result to detect clicks outside the scene rect.
          *
-         *   const m = Input.getMousePosition();
-         *   const r = Window.windowToRender(m.x, m.y);
-         *   // r.x, r.y are now in render-pixel coordinates
+         *     const m = Input.getMousePosition();
+         *     const r = Window.windowToRender(m.x, m.y);
+         *     // r.x, r.y are now in render-pixel coordinates
          */
         windowToRender(x: number, y: number): Point;
 
@@ -118,11 +122,21 @@ declare module "bokken/window" {
          * size). Under "fixed" a window resize never triggers a
          * render-size change, so listeners see only the events they
          * can legitimately react to — policy switches and (under
-         * "fixedHeight" / "follow") aspect-driven render-width changes.
+         * "fixedHeight" / "follow") aspect-driven render-width
+         * changes.
          *
          * Callbacks receive the new render size in render pixels and
-         * run before any onUpdate in the same frame, so layout
-         * changes are visible immediately.
+         * fire from inside the engine's render step, which means
+         * onUpdate for the current frame has already run. Layout
+         * changes you make in the handler take effect on the SAME
+         * frame's draw (since the handler runs before the scene is
+         * painted), but onUpdate logic that depends on the new size
+         * won't see it until next frame. If you need the new size
+         * inside onUpdate, call getRenderSize() directly from there.
+         *
+         * A handler registered before the first frame fires once
+         * during engine warm-up with the initial render size — so
+         * subscribing implicitly tells you what the current size is.
          *
          * @returns An integer id usable with offResize() to
          *          unregister the listener. Registering the same
@@ -137,6 +151,6 @@ declare module "bokken/window" {
         offResize(id: number): boolean;
     }
 
-    const window: Window;
-    export default window;
+    const Window: Window;
+    export default Window;
 }

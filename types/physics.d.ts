@@ -10,11 +10,12 @@ declare module "bokken/physics" {
     /**
      * Opaque handle to a Box2D shape inside the physics world.
      *
-     * Returned from queries (overlapAABB, overlapCircle) and embedded
-     * in raycast hit results. Treat this as a tag — there's no public
-     * API on the shape itself; the engine cleans it up when the owning
-     * collider is destroyed. The handle is safe to store across
-     * frames as long as the underlying collider lives.
+     * Returned from queries (`overlapAABB`, `overlapCircle`) and
+     * embedded in raycast hit results. Treat this as a tag —
+     * there's no public API on the shape itself; the engine
+     * cleans it up when the owning collider is destroyed. The
+     * handle is safe to store across frames as long as the
+     * underlying collider lives.
      */
     export interface ShapeHandle {
         readonly __shapeHandle: never;
@@ -33,8 +34,8 @@ declare module "bokken/physics" {
     }
 
     /**
-     * Joint type names returned by Joint.type. These match the
-     * factory function names below.
+     * Joint type names returned by `Joint.type`. These match the
+     * factory function names on `physics.joints`.
      */
     export type JointType =
         | "distance"
@@ -48,17 +49,19 @@ declare module "bokken/physics" {
         | "unknown";
 
     /**
-     * Live handle to a constraint between two bodies (or one body and
-     * the world, in the case of mouse joints). Returned from the
-     * factories under `physics.joints.*`.
+     * Live handle to a constraint between two bodies (or one
+     * body and the world, in the case of mouse joints). Returned
+     * from the factories under `physics.joints.*`.
      *
-     * Joints are destroyed automatically when either attached body is
-     * destroyed; you can also call destroy() explicitly. Once destroyed,
-     * isValid() returns false and motor/limit setters become no-ops.
+     * Joints are destroyed automatically when either attached
+     * body is destroyed; you can also call `destroy()`
+     * explicitly. Once destroyed, `isValid()` returns false and
+     * motor / limit setters become no-ops.
      *
      * Not every joint type supports every method — calling
-     * setMotorSpeed on a distance joint, for instance, is silently
-     * ignored. The factory's docs note which fields are meaningful.
+     * `setMotorSpeed` on a distance joint, for instance, is
+     * silently ignored. The factory's docs note which fields
+     * are meaningful per type.
      */
     export interface Joint {
         /** Returns the joint's type name. */
@@ -70,7 +73,10 @@ declare module "bokken/physics" {
         /** Explicitly destroy the joint. Safe to call multiple times. */
         destroy(): void;
 
-        /** Set angular motor speed in degrees/sec (revolute, wheel). */
+        /**
+         * Set angular motor speed in degrees/sec
+         * (revolute, wheel).
+         */
         setMotorSpeed(speedDegPerSec: number): void;
 
         /** Set max motor torque (revolute, wheel). */
@@ -86,24 +92,27 @@ declare module "bokken/physics" {
         enableLimit(enabled: boolean): void;
 
         /**
-         * Set the joint's lower/upper limit.
-         * Units are degrees (revolute) or pixels (prismatic, wheel).
+         * Set the joint's lower / upper limit. Units are degrees
+         * (revolute) or pixels (prismatic, wheel).
          */
         setLimits(lower: number, upper: number): void;
 
         /**
-         * Set the target position (mouse joint only).
-         * Coordinates are in world pixels.
+         * Set the target position (mouse joint only). Coordinates
+         * are in world pixels.
          */
         setTarget(targetX: number, targetY: number): void;
     }
 
-    // Joint parameter objects.
-    //
-    // All parameters are optional. Anchors and lengths are in world
-    // pixels; angles are in degrees. Soft-constraint values (`hertz`,
-    // `dampingRatio`) make a joint behave like a spring-damper rather
-    // than a rigid constraint — leave at the defaults for rigid.
+    /*
+     * Joint parameter objects.
+     *
+     * All parameters are optional. Anchors and lengths are in
+     * world pixels; angles are in degrees. Soft-constraint
+     * values (`hertz`, `dampingRatio`) make a joint behave like
+     * a spring-damper rather than a rigid constraint — leave at
+     * the defaults for rigid.
+     */
 
     export interface DistanceJointParams {
         anchorA?: Vector2;
@@ -112,7 +121,10 @@ declare module "bokken/physics" {
         length?: number;
         /** Lower-bound length in pixels. 0 disables the lower limit. */
         minimumLength?: number;
-        /** Upper-bound length in pixels. Negative = same as length (rigid). */
+        /**
+         * Upper-bound length in pixels. Negative = same as
+         * `length` (rigid).
+         */
         maximumLength?: number;
         collideConnected?: boolean;
         /** Soft-constraint spring frequency in Hz. 0 = rigid. */
@@ -140,7 +152,10 @@ declare module "bokken/physics" {
     export interface PrismaticJointParams {
         /** World-space anchor in pixels. */
         anchor?: Vector2;
-        /** Translation axis. Need not be unit-length — will be normalised. */
+        /**
+         * Translation axis. Need not be unit-length — will be
+         * normalised.
+         */
         axis?: Vector2;
         collideConnected?: boolean;
         enableLimit?: boolean;
@@ -168,7 +183,10 @@ declare module "bokken/physics" {
     }
 
     export interface MouseJointParams {
-        /** World-space target in pixels. Update this every frame to drag. */
+        /**
+         * World-space target in pixels. Update this every frame
+         * to drag.
+         */
         target?: Vector2;
         /** Maximum pull force. Default 1000. */
         maximumForce?: number;
@@ -190,7 +208,10 @@ declare module "bokken/physics" {
 
     export interface WheelJointParams {
         anchor?: Vector2;
-        /** Suspension axis (perpendicular to the wheel's rolling direction). */
+        /**
+         * Suspension axis (perpendicular to the wheel's rolling
+         * direction).
+         */
         axis?: Vector2;
         collideConnected?: boolean;
         enableLimit?: boolean;
@@ -207,85 +228,90 @@ declare module "bokken/physics" {
     /**
      * Factory functions for creating constraints between bodies.
      *
-     * All factories take two Rigidbody2D arguments (the mouse factory
-     * takes one) and an optional params object. They return a Joint
-     * handle, or null if the joint could not be created (e.g. either
-     * body is missing its Box2D body — likely because it was created
-     * outside an active world).
+     * All factories take two `Rigidbody2D` arguments (the mouse
+     * factory takes one) and an optional params object. They
+     * return a `Joint` handle, or null if the joint could not be
+     * created (e.g. either body is missing its Box2D body —
+     * likely because it was created outside an active world).
      */
     export interface JointFactories {
         /**
-         * Distance joint: keeps two anchor points a fixed distance apart.
-         * With `hertz > 0` it behaves like a spring instead of a rigid bar.
+         * Distance joint: keeps two anchor points a fixed
+         * distance apart. With `hertz > 0` it behaves like a
+         * spring instead of a rigid bar.
          */
         distance(a: Rigidbody2D, b: Rigidbody2D, params?: DistanceJointParams): Joint | null;
 
         /**
-         * Revolute joint: hinge between two bodies at a shared anchor.
-         * Optional limits, optional motor.
+         * Revolute joint: hinge between two bodies at a shared
+         * anchor. Optional limits, optional motor.
          */
         revolute(a: Rigidbody2D, b: Rigidbody2D, params?: RevoluteJointParams): Joint | null;
 
         /**
-         * Prismatic joint: bodies translate along a shared axis but
-         * cannot rotate relative to each other. Optional limits, motor.
+         * Prismatic joint: bodies translate along a shared axis
+         * but cannot rotate relative to each other. Optional
+         * limits, motor.
          */
         prismatic(a: Rigidbody2D, b: Rigidbody2D, params?: PrismaticJointParams): Joint | null;
 
         /**
-         * Weld joint: rigidly attaches two bodies. With `linearHertz` /
-         * `angularHertz` set, behaves like a soft weld (a "broken" weld
-         * with some give).
+         * Weld joint: rigidly attaches two bodies. With
+         * `linearHertz` / `angularHertz` set, behaves like a
+         * soft weld (a "broken" weld with some give).
          */
         weld(a: Rigidbody2D, b: Rigidbody2D, params?: WeldJointParams): Joint | null;
 
         /**
-         * Mouse joint: drags a single body toward a target world point.
-         * The classic "click and drag" interaction. Update `target` via
-         * setTarget() every frame to follow the cursor.
+         * Mouse joint: drags a single body toward a target
+         * world point. The classic "click and drag" interaction.
+         * Update `target` via `setTarget()` every frame to
+         * follow the cursor.
          */
         mouse(target: Rigidbody2D, params?: MouseJointParams): Joint | null;
 
         /**
-         * Motor joint: drives one body to maintain a relative offset
-         * (linearOffset, angularOffset) from another. Used for AI or
-         * vehicle steering controllers.
+         * Motor joint: drives one body to maintain a relative
+         * offset (`linearOffset`, `angularOffset`) from another.
+         * Used for AI or vehicle steering controllers.
          */
         motor(a: Rigidbody2D, b: Rigidbody2D, params?: MotorJointParams): Joint | null;
 
         /**
-         * Wheel joint: combines a prismatic (suspension) and revolute
-         * (rolling) joint, parameterised for vehicle wheels.
+         * Wheel joint: combines a prismatic (suspension) and
+         * revolute (rolling) joint, parameterised for vehicle
+         * wheels.
          */
         wheel(a: Rigidbody2D, b: Rigidbody2D, params?: WheelJointParams): Joint | null;
 
         /**
-         * Filter joint: disables collision between two specific bodies
-         * regardless of their categoryBits/maskBits. Useful for "this
-         * specific NPC should pass through this specific wall" cases
-         * without burning a category bit.
+         * Filter joint: disables collision between two specific
+         * bodies regardless of their categoryBits / maskBits.
+         * Useful for "this specific NPC should pass through this
+         * specific wall" cases without burning a category bit.
          */
         filter(a: Rigidbody2D, b: Rigidbody2D): Joint | null;
     }
 
     /**
-     * Default export of the bokken/physics module.
+     * The physics module — world configuration plus the spatial
+     * query and joint surfaces.
      *
-     * The world is a singleton — there's exactly one instance per
-     * engine session, set up before any scripts run. All functions on
-     * this object operate on it.
+     * The world is a singleton: there's exactly one instance per
+     * engine session, set up before any scripts run. All
+     * functions on this object operate on it.
      *
      * @example
-     * import physics from "bokken/physics";
+     *     import Physics from "bokken/physics";
      *
-     * physics.setGravity(0, -18);
-     * physics.setMeter(1);
+     *     Physics.setGravity(0, -18);
+     *     Physics.setMeter(1);
      *
-     * const hit = physics.raycastNearest(0, 0, 1, 0, 100);
-     * if (hit) console.log("hit at", hit.point.x, hit.point.y);
+     *     const hit = Physics.raycastNearest(0, 0, 1, 0, 100);
+     *     if (hit) console.log("hit at", hit.point.x, hit.point.y);
      */
     interface Physics {
-        /** Set the world gravity vector in pixels/sec^2. */
+        /** Set the world gravity vector in pixels/sec². */
         setGravity(x: number, y: number): void;
 
         /** Returns the current world gravity vector. */
@@ -294,11 +320,12 @@ declare module "bokken/physics" {
         /**
          * Set the meter-to-pixel ratio. Default is 30.
          *
-         * Box2D works best when typical object sizes are around 1
-         * meter. The meter setting tells the engine how many pixels
-         * make up one Box2D meter — change it to match your game's
-         * scale (e.g. setMeter(1) for unit-based games where 1 world
-         * unit ≈ 1 meter and the camera handles pixel scaling).
+         * Box2D works best when typical object sizes are around
+         * 1 meter. The meter setting tells the engine how many
+         * pixels make up one Box2D meter — change it to match
+         * your game's scale (e.g. `setMeter(1)` for unit-based
+         * games where 1 world unit ≈ 1 meter and the camera
+         * handles pixel scaling).
          */
         setMeter(pixelsPerMeter: number): void;
 
@@ -307,9 +334,9 @@ declare module "bokken/physics" {
 
         /**
          * Set the number of physics sub-steps per fixed update.
-         * Default 4. Higher values trade CPU for more stable contacts
-         * and tighter constraint resolution; useful for high-speed
-         * objects or stiff joint chains.
+         * Default 4. Higher values trade CPU for more stable
+         * contacts and tighter constraint resolution; useful
+         * for high-speed objects or stiff joint chains.
          */
         setSubSteps(steps: number): void;
 
@@ -317,72 +344,78 @@ declare module "bokken/physics" {
         getSubSteps(): number;
 
         /**
-         * Cast a ray from `origin` along `direction` for up to `maximumDistance`
-         * pixels. Returns every shape hit along the ray, sorted by fraction.
+         * Cast a ray from `origin` along `direction` for up to
+         * `maximumDistance` pixels. Returns every shape hit
+         * along the ray, sorted by fraction.
          *
-         * The optional `mask` filters which categories the ray will
-         * hit; the bitmask is matched against each shape's categoryBits.
-         * Pass undefined (or omit) to hit everything.
+         * The optional `mask` filters which categories the ray
+         * will hit; the bitmask is matched against each shape's
+         * `categoryBits`. Pass undefined (or omit) to hit
+         * everything.
          */
         raycast(
             originX: number, originY: number,
             directionX: number, directionY: number,
             maximumDistance: number,
-            mask?: number
+            mask?: number,
         ): RaycastHit[];
 
         /**
-         * Cast a ray and return only the closest hit, or null if nothing
-         * was hit within `maximumDistance`. Cheaper than `raycast` when you
-         * only need the first contact.
+         * Cast a ray and return only the closest hit, or null
+         * if nothing was hit within `maximumDistance`. Cheaper
+         * than `raycast` when you only need the first contact.
          */
         raycastNearest(
             originX: number, originY: number,
             directionX: number, directionY: number,
             maximumDistance: number,
-            mask?: number
+            mask?: number,
         ): RaycastHit | null;
 
         /**
-         * Returns every shape whose AABB overlaps the given pixel-space
-         * rectangle (lowerLeft to upperRight).
+         * Returns every shape whose AABB overlaps the given
+         * pixel-space rectangle (`lower` to `upper`).
          */
         overlapAABB(
             lowerX: number, lowerY: number,
             upperX: number, upperY: number,
-            mask?: number
-        ): ShapeHandle[];
-
-        /** Returns every shape overlapping the given pixel-space circle. */
-        overlapCircle(
-            centerX: number, centerY: number,
-            radius: number,
-            mask?: number
+            mask?: number,
         ): ShapeHandle[];
 
         /**
-         * Sweep a circle from `(centerX, centerY)` along `(translateX, translateY)`
-         * and return the first shape it hits (or null). Useful for
-         * "thick" raycasts and projectile leading-edge tests.
+         * Returns every shape overlapping the given pixel-space
+         * circle.
+         */
+        overlapCircle(
+            centerX: number, centerY: number,
+            radius: number,
+            mask?: number,
+        ): ShapeHandle[];
+
+        /**
+         * Sweep a circle from `(centerX, centerY)` along
+         * `(translateX, translateY)` and return the first shape
+         * it hits (or null). Useful for "thick" raycasts and
+         * projectile leading-edge tests.
          */
         circleCast(
             centerX: number, centerY: number,
             radius: number,
             translateX: number, translateY: number,
-            mask?: number
+            mask?: number,
         ): RaycastHit | null;
 
         /**
-         * Compute the closest distance between two shapes in pixels.
-         * Returns -1 if either handle is invalid or the shape type is
-         * unsupported.
+         * Compute the closest distance between two shapes in
+         * pixels. Returns -1 if either handle is invalid or the
+         * shape type is unsupported.
          */
         distance(a: ShapeHandle, b: ShapeHandle): number;
 
-        /** Joint factories under physics.joints.*. */
-        joints: JointFactories;
+        /** Joint factories under `Physics.joints.*`. */
+        readonly joints: JointFactories;
     }
 
-    const physics: Physics;
-    export default physics;
+    const Physics: Physics;
+    export default Physics;
 }

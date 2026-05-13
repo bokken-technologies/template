@@ -1,61 +1,109 @@
 declare module "bokken/scene" {
+    import { GameObject } from "bokken/gameObject";
+
     /**
-     * Represents a collection of GameObjects and their hierarchical relationships.
-     * Only one Scene can be "active" in the C++ Renderer at a time.
+     * A collection of GameObjects and the hierarchical
+     * relationships between them. Only one `Scene` is active at a
+     * time in the C++ engine — that's the one being ticked,
+     * rendered, and serialized.
+     *
+     * Scenes are created through the module's `create()` factory
+     * rather than `new` because the JS shape is just a handle for
+     * the native scene object the engine owns.
      */
-    export class Scene {
-        /** The unique name of the scene (e.g., "MainMenu" or "Level_01"). */
-        public readonly name: string;
-
-        /** * The root GameObject of the scene. 
-         * All top-level GameObjects are technically children of this root.
+    interface Scene {
+        /**
+         * The unique name of the scene
+         * (e.g. `"MainMenu"`, `"Level_01"`). Used as the asset
+         * key when persisting and as the lookup key in
+         * `loadScene()`.
          */
-        public readonly root: GameObject;
+        readonly name: string;
 
         /**
-         * Creates a new, empty Scene in C++ memory.
-         * @param name The identifier for this scene.
+         * The root GameObject of the scene. All top-level
+         * GameObjects are technically children of this root —
+         * walking the tree from here visits everything in the
+         * scene.
          */
-        constructor(name: string);
+        readonly root: GameObject;
 
         /**
-         * Serializes all GameObjects and Components into a binary format.
-         * Used by the C++ Engine to create save files or scene assets.
+         * Serialize every GameObject and Component into a binary
+         * blob suitable for saving to disk or shipping as an
+         * asset. The returned buffer is consumed by the engine's
+         * scene-load path; round-tripping is lossless.
          */
         save(): ArrayBuffer;
 
         /**
-         * Iterates through all GameObjects in the scene and invokes a callback.
-         * @param callback The function to execute for every object found.
+         * Walk every GameObject in the scene depth-first and
+         * invoke `callback` for each one. Iteration order is
+         * stable across frames; ordering between siblings
+         * matches their insertion order under their parent.
+         *
+         * Mutating the scene from inside the callback
+         * (destroying, reparenting) is allowed but doesn't
+         * affect the current walk — additions appear in the
+         * next call, deletions skip already-visited nodes.
          */
         forEach(callback: (object: GameObject) => void): void;
     }
 
     /**
-     * Global Scene Management system.
-     * Handles the transition between different game states and levels.
+     * Global scene-management surface.
+     *
+     * Handles transitions between scenes, lookup of the currently
+     * active scene, and registration of objects that should
+     * survive a scene change.
+     *
+     * @example
+     *     import Scene from "bokken/scene";
+     *
+     *     const main = Scene.create("MainMenu");
+     *     Scene.load("MainMenu");
+     *     Scene.dontDestroyOnLoad(audioManager);
      */
-    export namespace SceneManager {
+    interface SceneModule {
         /**
-         * Loads a scene by its registered name or asset path.
-         * This will trigger an 'onDestroy' lifecycle event for all objects in the current scene.
+         * Create an empty scene and set it as the active scene.
+         * The native scene object is owned by the engine; the
+         * returned handle becomes invalid only if the scene is
+         * later unloaded.
          */
-        function loadScene(name: string): void;
+        create(name: string): Scene;
 
         /**
-         * Returns the currently active Scene being processed by the C++ Engine.
+         * Load a scene by its registered name or asset path.
+         *
+         * Loading triggers `onDestroy` for every component in
+         * the outgoing scene, then `onStart` for every component
+         * in the incoming scene. Objects registered with
+         * `dontDestroyOnLoad()` skip the destroy pass and are
+         * reparented under the new scene's root.
          */
-        function getActiveScene(): Scene;
+        load(name: string): void;
 
         /**
-         * Creates an empty scene and sets it as the active one.
+         * Returns the currently active scene — the one being
+         * ticked and rendered. Always non-null after engine
+         * init.
          */
-        function createEmpty(name: string): Scene;
+        getActiveScene(): Scene;
 
         /**
-         * Prevents a specific GameObject from being destroyed when changing scenes.
-         * Essential for persistent objects like Global Managers or Player State.
+         * Mark a GameObject as persistent across scene changes.
+         * Essential for global managers (audio, input glue,
+         * save-game state) and for the player character in
+         * games that share one character across levels.
+         *
+         * Calling this on the same object more than once is a
+         * no-op. Calling it on a child reparents the child to
+         * the persistent root.
          */
-        function dontDestroyOnLoad(obj: GameObject): void;
+        dontDestroyOnLoad(obj: GameObject): void;
     }
+
+    const Scene: SceneModule;
+    export default Scene;
 }
